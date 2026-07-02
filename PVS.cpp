@@ -1,11 +1,12 @@
 ﻿// ============================================================
 //   PAKISTAN ELECTRONIC VOTING SYSTEM
-//   Professional Version
+//   Professional Version (with File Handling)
 //   Language  : C++
-//   Concepts  : Arrays, Functions, Loops, If/Else, I/O
+//   Concepts  : Arrays, Functions, Loops, If/Else, I/O, File Handling
 // ============================================================
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <iomanip>
 using namespace std;
@@ -13,6 +14,10 @@ using namespace std;
 // ---- Constants ----
 const int MAX_CANDIDATES = 5;
 const int MAX_VOTERS     = 100;
+
+// ---- File Names ----
+const string VOTERS_FILE   = "voters.txt";
+const string ELECTION_FILE = "election_data.txt";
 
 // ---- Candidate Data ----
 string candidateNames[MAX_CANDIDATES] = {
@@ -121,6 +126,79 @@ string maskCNIC(const string& cnic) {
 }
 
 // ============================================================
+//   FILE HANDLING FUNCTIONS
+// ============================================================
+
+// ---- Save all registered voters to voters.txt ----
+// Format per line: name|cnic|hasVoted(0/1)
+void saveVoters() {
+    ofstream fout(VOTERS_FILE);
+    if (!fout) {
+        cout << "  [!] Error: Could not save voters data to file.\n";
+        return;
+    }
+    for (int i = 0; i < voterCount; i++) {
+        fout << voterNames[i] << "|" << voterCNICs[i] << "|" << voterHasVoted[i] << "\n";
+    }
+    fout.close();
+}
+
+// ---- Load registered voters from voters.txt (called at program start) ----
+void loadVoters() {
+    ifstream fin(VOTERS_FILE);
+    if (!fin) return; // file doesn't exist yet, first run
+
+    string line;
+    voterCount = 0;
+
+    while (getline(fin, line) && voterCount < MAX_VOTERS) {
+        if (line.empty()) continue;
+
+        size_t p1 = line.find('|');
+        size_t p2 = line.find('|', p1 + 1);
+        if (p1 == string::npos || p2 == string::npos) continue;
+
+        voterNames[voterCount]    = line.substr(0, p1);
+        voterCNICs[voterCount]    = line.substr(p1 + 1, p2 - p1 - 1);
+        voterHasVoted[voterCount] = (line.substr(p2 + 1) == "1");
+        voterCount++;
+    }
+    fin.close();
+}
+
+// ---- Save election status, vote counts, and admin password ----
+void saveElectionData() {
+    ofstream fout(ELECTION_FILE);
+    if (!fout) {
+        cout << "  [!] Error: Could not save election data to file.\n";
+        return;
+    }
+    fout << electionOpen << "\n";
+    for (int i = 0; i < MAX_CANDIDATES; i++)
+        fout << votes[i] << " ";
+    fout << "\n";
+    fout << adminPassword << "\n";
+    fout.close();
+}
+
+// ---- Load election status, vote counts, and admin password ----
+void loadElectionData() {
+    ifstream fin(ELECTION_FILE);
+    if (!fin) return; // file doesn't exist yet, first run
+
+    int openFlag = 0;
+    fin >> openFlag;
+    electionOpen = (openFlag == 1);
+
+    for (int i = 0; i < MAX_CANDIDATES; i++) {
+        if (!(fin >> votes[i])) votes[i] = 0;
+    }
+
+    fin >> adminPassword;
+    fin.close();
+}
+
+// ============================================================
 //   DISPLAY FUNCTIONS
 // ============================================================
 
@@ -222,6 +300,8 @@ void registerVoter() {
     voterHasVoted[voterCount] = false;
     voterCount++;
 
+    saveVoters(); // persist new voter to file
+
     cout << "\n";
     printDash(40);
     cout << "  Registration Successful!\n";
@@ -230,7 +310,6 @@ void registerVoter() {
          << "  CNIC         : " << maskCNIC(cnic) << "\n"
          << "  Voter Number : " << voterCount << "\n";
     printDash(40);
-
     pressEnterToContinue();
 }
 
@@ -330,6 +409,9 @@ void castVote() {
 
     votes[choice - 1]++;
     voterHasVoted[voterIdx] = true;
+
+    saveVoters();        // persist updated vote status
+    saveElectionData();  // persist updated vote counts
 
     cout << "\n";
     printLine(40);
@@ -486,7 +568,7 @@ void showAbout() {
     printLine(58);
     cout << "  System Name  : Pakistan Electronic Voting System\n"
          << "  Language     : C++\n"
-         << "  Version      : Professional Edition\n"
+         << "  Version      : Professional Edition (File Handling)\n"
          << "\n"
          << "  Features:\n"
          << "    - Voter Registration with CNIC validation\n"
@@ -499,6 +581,7 @@ void showAbout() {
          << "    - Election statistics and turnout report\n"
          << "    - Admin password change\n"
          << "    - Votes reset functionality\n"
+         << "    - Persistent File Storage (voters.txt, election_data.txt)\n"
          << "\n"
          << "  Default Admin Credentials:\n"
          << "    Username : admin\n"
@@ -518,6 +601,7 @@ void adminStartElection() {
         cout << "  [!] No voters are registered. Please register voters first.\n";
     } else {
         electionOpen = true;
+        saveElectionData(); // persist election status
         cout << "  [OK] Election has been STARTED successfully.\n"
              << "       " << voterCount << " registered voter(s) may now cast their vote.\n";
     }
@@ -529,6 +613,7 @@ void adminStopElection() {
         cout << "  [!] The election is not currently running.\n";
     } else {
         electionOpen = false;
+        saveElectionData(); // persist election status
         cout << "  [OK] Election has been STOPPED.\n"
              << "       No further votes will be accepted.\n";
     }
@@ -544,6 +629,8 @@ void adminResetVotes() {
     if (confirm == "RESET") {
         for (int i = 0; i < MAX_CANDIDATES; i++) votes[i] = 0;
         for (int i = 0; i < voterCount;     i++) voterHasVoted[i] = false;
+        saveVoters();        // persist reset vote status
+        saveElectionData();  // persist reset vote counts
         cout << "  [OK] All votes have been reset. Voters may vote again.\n";
     } else {
         cout << "  Reset cancelled. No data has been changed.\n";
@@ -615,6 +702,7 @@ void adminChangePassword() {
     }
 
     adminPassword = newPass;
+    saveElectionData(); // persist new password
     cout << "  [OK] Password changed successfully.\n";
     pressEnterToContinue();
 }
@@ -679,6 +767,10 @@ void adminPanel() {
 // ============================================================
 
 int main() {
+    // Load previously saved data (if files exist) when program starts
+    loadVoters();
+    loadElectionData();
+
     showBanner();
 
     cout << "  Welcome to the Pakistan Electronic Voting System!\n"
